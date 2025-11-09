@@ -1,5 +1,6 @@
 const std = @import("std");
 const Config = @import("Config.zig");
+const Router = @import("Router.zig");
 
 const Allocator = std.mem.Allocator;
 const Server = @This();
@@ -12,6 +13,7 @@ const http = std.http;
 allocator: Allocator,
 server: std.net.Server,
 workers: []Worker,
+_router: Router,
 
 const Worker = struct {
     thread: Thread,
@@ -33,6 +35,7 @@ pub fn init(allocator: Allocator, config: Config) !Server {
         .allocator = allocator,
         .server = server,
         .workers = try allocator.alloc(Worker, config.threadCount),
+        ._router = .init(allocator),
     };
 }
 
@@ -60,6 +63,10 @@ pub fn start(self: *Server) !void {
 
 pub fn stop(self: *Server) void {
     self.allocator.free(self.workers);
+}
+
+pub fn router(self: *Server) *Router {
+    return &self._router;
 }
 
 fn createWorker(self: *Server, id: usize) ?Worker {
@@ -95,7 +102,7 @@ fn listen(self: *Server, workerId: usize) !void {
 
             var receive_buffer: [BUF_SIZE]u8 = undefined;
             var send_buffer: [BUF_SIZE]u8 = undefined;
-            var body_buffer: [BUF_SIZE]u8 = undefined;
+            //var body_buffer: [BUF_SIZE]u8 = undefined;
 
             var connection_reader = connection.stream.reader(&receive_buffer);
             var connection_writer = connection.stream.writer(&send_buffer);
@@ -106,19 +113,39 @@ fn listen(self: *Server, workerId: usize) !void {
             );
 
             var request = try http_server.receiveHead();
-            const body_reader = try request.readerExpectContinue(&body_buffer);
 
-            const body_payload = try body_reader.readAlloc(
-                self.allocator,
-                request.head.content_length orelse 0,
-            );
+            const callback = switch (request.head.method) {
+                .GET => self._router._get(request.head.target) orelse null,
+                .POST => self._router._post(request.head.target) orelse null,
+                else => @panic("not implemented"),
+            };
 
-            defer self.allocator.free(body_payload);
+            if (callback) |cb| {
+                try cb(&request);
+            }
 
-            try request.respond(
-                body_payload,
-                .{ .status = .ok, .keep_alive = false },
-            );
+            //if (request.head.content_length) |body_len| {
+            //    const body_reader = try request.readerExpectContinue(&body_buffer);
+
+            //    const body_payload = try body_reader.readAlloc(
+            //        self.allocator,
+            //        body_len,
+            //    );
+
+            //    defer self.allocator.free(body_payload);
+            //    try request.respond(
+            //        body_payload,
+            //        .{ .status = .ok, .keep_alive = false },
+            //    );
+            //} else {
+            //    //try request.respond(
+            //    //    &.{},
+            //    //    .{ .status = .ok, .keep_alive = false },
+            //    //);
+            //    if (self._router._get(request.head.target)) |callback| {
+            //        try callback(&request);
+            //    }
+            //}
         }
     }
 }
