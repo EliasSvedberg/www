@@ -1,10 +1,10 @@
 const std = @import("std");
 const Server = @import("Server.zig");
 const Config = @import("Config.zig");
+const Request = @import("Request.zig");
 
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Request = std.http.Server.Request;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -26,22 +26,22 @@ pub fn main() !void {
     try router.get("/", callback);
 
     // register get route to / with callback
-    try router.post("/", callback2);
+    try router.post("/", callback);
 
     try server.start();
     defer server.stop();
 }
 
-pub fn callback(request: *Request) anyerror!void {
-    try request.respond(
-        "from get callback",
-        .{ .status = .ok, .keep_alive = false },
-    );
-}
+pub fn callback(request: *Request, allocator: Allocator) anyerror!void {
+    _ = allocator;
 
-pub fn callback2(request: *Request) anyerror!void {
+    const body = request.body() orelse "";
+    const qp = request.queryParams() orelse "";
+
+    std.debug.print("qp: {s}", .{qp});
+
     try request.respond(
-        "from post callback",
+        body,
         .{ .status = .ok, .keep_alive = false },
     );
 }

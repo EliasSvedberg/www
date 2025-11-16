@@ -1,5 +1,6 @@
 const std = @import("std");
 const Config = @import("Config.zig");
+const Request = @import("Request.zig");
 const Router = @import("Router.zig");
 
 const Allocator = std.mem.Allocator;
@@ -18,11 +19,6 @@ _router: Router,
 const Worker = struct {
     thread: Thread,
     id: usize,
-};
-
-const Status = enum {
-    ok,
-    err,
 };
 
 pub fn init(allocator: Allocator, config: Config) !Server {
@@ -102,7 +98,6 @@ fn listen(self: *Server, workerId: usize) !void {
 
             var receive_buffer: [BUF_SIZE]u8 = undefined;
             var send_buffer: [BUF_SIZE]u8 = undefined;
-            //var body_buffer: [BUF_SIZE]u8 = undefined;
 
             var connection_reader = connection.stream.reader(&receive_buffer);
             var connection_writer = connection.stream.writer(&send_buffer);
@@ -112,40 +107,23 @@ fn listen(self: *Server, workerId: usize) !void {
                 &connection_writer.interface,
             );
 
-            var request = try http_server.receiveHead();
+            const req = try http_server.receiveHead();
 
-            const callback = switch (request.head.method) {
-                .GET => self._router._get(request.head.target) orelse null,
-                .POST => self._router._post(request.head.target) orelse null,
+            var request: Request = try .init(req);
+            defer request.deinit(self.allocator);
+
+            try request.parseBody(self.allocator);
+            try request.parseQueryParams(self.allocator);
+
+            const callback = switch (request.method()) {
+                .GET => self._router._get(request.path()) orelse null,
+                .POST => self._router._post(request.path()) orelse null,
                 else => @panic("not implemented"),
             };
 
             if (callback) |cb| {
-                try cb(&request);
+                try cb(&request, self.allocator);
             }
-
-            //if (request.head.content_length) |body_len| {
-            //    const body_reader = try request.readerExpectContinue(&body_buffer);
-
-            //    const body_payload = try body_reader.readAlloc(
-            //        self.allocator,
-            //        body_len,
-            //    );
-
-            //    defer self.allocator.free(body_payload);
-            //    try request.respond(
-            //        body_payload,
-            //        .{ .status = .ok, .keep_alive = false },
-            //    );
-            //} else {
-            //    //try request.respond(
-            //    //    &.{},
-            //    //    .{ .status = .ok, .keep_alive = false },
-            //    //);
-            //    if (self._router._get(request.head.target)) |callback| {
-            //        try callback(&request);
-            //    }
-            //}
         }
     }
 }
